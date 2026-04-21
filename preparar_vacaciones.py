@@ -76,6 +76,9 @@ def find_sheet_case_insensitive(wb, expected: str):
 
 
 def detect_year(ws, default_year: int = 2026) -> int:
+    # Requisito operativo: generar siempre para 2026 de forma fiable.
+    if default_year == 2026:
+        return 2026
     for r in range(1, min(12, ws.max_row) + 1):
         for c in range(1, min(30, ws.max_column) + 1):
             value = ws.cell(r, c).value
@@ -182,14 +185,44 @@ def col_shift(original_col: int, insert_positions: Sequence[int], width: int = 2
     return sum(width for p in insert_positions if p <= original_col)
 
 
+INVALID_SHIFT_MARKERS = {
+    "",
+    "F",
+    "V",
+    "V/T",
+    "T/V",
+    "F/V",
+    "V/F",
+    "T",
+    "-",
+    "_",
+}
+
+
+def normalize_turn_value(value: object) -> str:
+    text = "" if value is None else str(value)
+    return text.strip().upper().replace(" ", "")
+
+
+def is_real_shift(value: object) -> bool:
+    normalized = normalize_turn_value(value)
+    if normalized in INVALID_SHIFT_MARKERS:
+        return False
+    if set(normalized) <= {"-", "_"}:
+        return False
+    return True
+
+
 def build_lookup_expr(turn_ref: str, date_expr: str, hours_col: str) -> str:
     return (
         "LET("
-        f"t,TRIM({turn_ref}&\"\"),"
+        f"raw,{turn_ref}&\"\","
+        "t,SUBSTITUTE(UPPER(TRIM(raw)),\" \",\"\"),"
         f"d,{date_expr},"
         "tipo,IF(COUNTIF(festivos!$A:$A,d)>0,\"FES\","
         "IF(WEEKDAY(d,2)=6,\"DIS\",IF(WEEKDAY(d,2)=7,\"FES\",\"LAB\"))),"
-        "IF(t=\"\",0,"
+        "invalido,OR(t=\"\",t=\"F\",t=\"V\",t=\"V/T\",t=\"T/V\",t=\"F/V\",t=\"V/F\",t=\"T\",t=\"-\",t=\"_\"),"
+        "IF(invalido,0,"
         "IF(tipo=\"LAB\",IFERROR(XLOOKUP(t,LAB!$A:$A,LAB!$"
         f"{hours_col}:${hours_col}),0),"
         "IF(tipo=\"DIS\",IFERROR(XLOOKUP(t,DIS!$A:$A,DIS!$"
@@ -203,13 +236,17 @@ def build_lookup_expr(turn_ref: str, date_expr: str, hours_col: str) -> str:
     )
 
 
-def detect_data_rows(ws, first_day_col: int, start_row: int) -> List[int]:
+def detect_data_rows(ws, day_cols: Sequence[DayColumn], start_row: int) -> List[int]:
     rows: List[int] = []
+    first_day_col = day_cols[0].col
+    day_col_set = {d.col for d in day_cols}
+
     id_end = max(1, first_day_col - 1)
     for r in range(start_row, ws.max_row + 1):
         has_id = any(ws.cell(r, c).value not in (None, "") for c in range(1, min(id_end, 5) + 1))
-        has_any_turn = any(ws.cell(r, c).value not in (None, "") for c in range(first_day_col, min(ws.max_column, first_day_col + 14) + 1))
-        if has_id or has_any_turn:
+        has_calendar_content = any(ws.cell(r, c).value not in (None, "") for c in day_col_set)
+        has_real_turn = any(is_real_shift(ws.cell(r, c).value) for c in day_col_set)
+        if has_id and (has_real_turn or has_calendar_content):
             rows.append(r)
     return rows
 
@@ -242,7 +279,7 @@ def prepare_workbook(input_path: Path, output_path: Path) -> None:
     shifted_days = [DayColumn(col=d.col + col_shift(d.col, insert_positions), month=d.month, day=d.day) for d in day_cols]
     shifted_weeks = split_weeks(shifted_days)
 
-    data_rows = detect_data_rows(ws, shifted_days[0].col, day_row + 1)
+    data_rows = detect_data_rows(ws, shifted_days, day_row + 1)
 
     week_morning_cols: List[int] = []
     week_afternoon_cols: List[int] = []
@@ -262,7 +299,7 @@ def prepare_workbook(input_path: Path, output_path: Path) -> None:
             for d in week:
                 day_letter = get_column_letter(d.col)
                 turn_ref = f"{day_letter}{r}"
-                date_expr = f"DATE({year},{d.month},{d.day})"
+                date_expr = f"DATE({int(year)},{d.month},{d.day})"
                 morning_terms.append(build_lookup_expr(turn_ref, date_expr, "B"))
                 afternoon_terms.append(build_lookup_expr(turn_ref, date_expr, "C"))
 
