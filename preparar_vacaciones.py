@@ -217,18 +217,18 @@ def build_lookup_expr(turn_ref: str, date_expr: str, hours_col: str) -> str:
     return (
         "LET("
         f"raw;{turn_ref}&\"\";"
-        "t;SUBSTITUTE(UPPER(TRIM(raw));\" \";\"\");"
+        "t;SUSTITUIR(MAYUSC(ESPACIOS(raw));\" \";\"\");"
         f"d;{date_expr};"
-        "tipo;IF(COUNTIF(festivos!$A:$A;d)>0;\"FES\";"
-        "IF(WEEKDAY(d;2)=6;\"DIS\";IF(WEEKDAY(d;2)=7;\"FES\";\"LAB\")));"
-        "invalido;OR(t=\"\";t=\"F\";t=\"V\";t=\"V/T\";t=\"T/V\";t=\"F/V\";t=\"V/F\";t=\"T\";t=\"-\";t=\"_\");"
-        "IF(invalido;0;"
-        "IF(tipo=\"LAB\";IFERROR(INDEX(LAB!$"
-        f"{hours_col}:${hours_col};MATCH(--t;LAB!$A:$A;0));0);"
-        "IF(tipo=\"DIS\";IFERROR(INDEX(DIS!$"
-        f"{hours_col}:${hours_col};MATCH(--t;DIS!$A:$A;0));0);"
-        "IFERROR(INDEX(FES!$"
-        f"{hours_col}:${hours_col};MATCH(--t;FES!$A:$A;0));0)"
+        "tipo;SI(CONTAR.SI(festivos!$A:$A;d)>0;\"FES\";"
+        "SI(DIASEM(d;2)=6;\"DIS\";SI(DIASEM(d;2)=7;\"FES\";\"LAB\")));"
+        "invalido;O(t=\"\";t=\"F\";t=\"V\";t=\"V/T\";t=\"T/V\";t=\"F/V\";t=\"V/F\";t=\"T\";t=\"-\";t=\"_\");"
+        "SI(invalido;0;"
+        "SI(tipo=\"LAB\";SI.ERROR(INDICE(LAB!$"
+        f"{hours_col}:${hours_col};COINCIDIR(--t;LAB!$A:$A;0));0);"
+        "SI(tipo=\"DIS\";SI.ERROR(INDICE(DIS!$"
+        f"{hours_col}:${hours_col};COINCIDIR(--t;DIS!$A:$A;0));0);"
+        "SI.ERROR(INDICE(FES!$"
+        f"{hours_col}:${hours_col};COINCIDIR(--t;FES!$A:$A;0));0)"
         ")"
         ")"
         ")"
@@ -299,12 +299,12 @@ def prepare_workbook(input_path: Path, output_path: Path) -> None:
             for d in week:
                 day_letter = get_column_letter(d.col)
                 turn_ref = f"{day_letter}{r}"
-                date_expr = f"DATE({int(year)},{d.month},{d.day})"
+                date_expr = f"FECHA({int(year)},{d.month},{d.day})"
                 morning_terms.append(build_lookup_expr(turn_ref, date_expr, "B"))
                 afternoon_terms.append(build_lookup_expr(turn_ref, date_expr, "C"))
 
-            ws.cell(r, morning_col, f"=SUM({','.join(morning_terms)})")
-            ws.cell(r, afternoon_col, f"=SUM({','.join(afternoon_terms)})")
+            ws.cell(r, morning_col, f"=SUMA({','.join(morning_terms)})")
+            ws.cell(r, afternoon_col, f"=SUMA({','.join(afternoon_terms)})")
             ws.cell(r, morning_col).number_format = "[h]:mm"
             ws.cell(r, afternoon_col).number_format = "[h]:mm"
 
@@ -320,8 +320,8 @@ def prepare_workbook(input_path: Path, output_path: Path) -> None:
         morning_refs = [f"{get_column_letter(c)}{r}" for c in week_morning_cols]
         afternoon_refs = [f"{get_column_letter(c)}{r}" for c in week_afternoon_cols]
 
-        ws.cell(r, total_insert_at, f"=SUM({','.join(morning_refs)})")
-        ws.cell(r, total_insert_at + 1, f"=SUM({','.join(afternoon_refs)})")
+        ws.cell(r, total_insert_at, f"=SUMA({','.join(morning_refs)})")
+        ws.cell(r, total_insert_at + 1, f"=SUMA({','.join(afternoon_refs)})")
         ws.cell(r, total_insert_at).number_format = "[h]:mm"
         ws.cell(r, total_insert_at + 1).number_format = "[h]:mm"
 
