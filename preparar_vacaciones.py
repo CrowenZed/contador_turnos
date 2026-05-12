@@ -168,6 +168,15 @@ def split_weeks(day_cols: Sequence[DayColumn]) -> List[List[DayColumn]]:
 
 
 def copy_column_style(ws, target_col: int, source_col: int, max_row: int) -> None:
+    source_letter = get_column_letter(source_col)
+    target_letter = get_column_letter(target_col)
+    source_dimension = ws.column_dimensions[source_letter]
+    target_dimension = ws.column_dimensions[target_letter]
+    target_dimension.width = source_dimension.width
+    target_dimension.hidden = source_dimension.hidden
+    target_dimension.bestFit = source_dimension.bestFit
+    target_dimension.outlineLevel = source_dimension.outlineLevel
+
     for r in range(1, max_row + 1):
         src = ws.cell(r, source_col)
         dst = ws.cell(r, target_col)
@@ -269,39 +278,39 @@ def prepare_workbook(input_path: Path, output_path: Path) -> None:
     day_cols = extract_day_columns(ws, day_row, month_row)
     max_row_before = ws.max_row
 
-    previous_insert_at = day_cols[0].col
-    ws.insert_cols(previous_insert_at, amount=2)
-    copy_column_style(ws, previous_insert_at, max(1, previous_insert_at - 1), max_row_before)
-    copy_column_style(ws, previous_insert_at + 1, max(1, previous_insert_at - 1), max_row_before)
+    carryover_insert_at = day_cols[0].col
+    ws.insert_cols(carryover_insert_at, amount=2)
+    copy_column_style(ws, carryover_insert_at, max(1, carryover_insert_at - 1), max_row_before)
+    copy_column_style(ws, carryover_insert_at + 1, max(1, carryover_insert_at - 1), max_row_before)
 
-    previous_morning_col = previous_insert_at
-    previous_afternoon_col = previous_insert_at + 1
-    ws.cell(day_row, previous_morning_col, "Anterior mañana")
-    ws.cell(day_row, previous_afternoon_col, "Anterior tarde")
+    carryover_morning_col = carryover_insert_at
+    carryover_afternoon_col = carryover_insert_at + 1
+    ws.cell(day_row, carryover_morning_col, "Arrastre mañana")
+    ws.cell(day_row, carryover_afternoon_col, "Arrastre tarde")
 
-    days_after_previous = [DayColumn(col=d.col + 2, month=d.month, day=d.day) for d in day_cols]
-    weeks_after_previous = split_weeks(days_after_previous)
+    days_after_carryover = [DayColumn(col=d.col + 2, month=d.month, day=d.day) for d in day_cols]
+    weeks_after_carryover = split_weeks(days_after_carryover)
 
     insert_positions: List[int] = []
 
-    for week in reversed(weeks_after_previous):
+    for week in reversed(weeks_after_carryover):
         insert_at = week[-1].col + 1
-        ws.insert_cols(insert_at, amount=2)
-        copy_column_style(ws, insert_at, max(1, insert_at - 1), max_row_before)
-        copy_column_style(ws, insert_at + 1, max(1, insert_at - 1), max_row_before)
+        ws.insert_cols(insert_at, amount=4)
+        for offset in range(4):
+            copy_column_style(ws, insert_at + offset, max(1, insert_at - 1), max_row_before)
         insert_positions.append(insert_at)
 
     shifted_days = [
-        DayColumn(col=d.col + col_shift(d.col, insert_positions), month=d.month, day=d.day)
-        for d in days_after_previous
+        DayColumn(col=d.col + col_shift(d.col, insert_positions, width=4), month=d.month, day=d.day)
+        for d in days_after_carryover
     ]
     shifted_weeks = split_weeks(shifted_days)
 
     data_rows = detect_data_rows(ws, shifted_days, day_row + 1)
 
     for r in data_rows:
-        ws.cell(r, previous_morning_col).number_format = "[h]:mm"
-        ws.cell(r, previous_afternoon_col).number_format = "[h]:mm"
+        ws.cell(r, carryover_morning_col).number_format = "[h]:mm"
+        ws.cell(r, carryover_afternoon_col).number_format = "[h]:mm"
 
     week_morning_cols: List[int] = []
     week_afternoon_cols: List[int] = []
@@ -309,11 +318,15 @@ def prepare_workbook(input_path: Path, output_path: Path) -> None:
     for week in shifted_weeks:
         morning_col = week[-1].col + 1
         afternoon_col = week[-1].col + 2
+        accumulated_morning_col = week[-1].col + 3
+        accumulated_afternoon_col = week[-1].col + 4
         week_morning_cols.append(morning_col)
         week_afternoon_cols.append(afternoon_col)
 
         ws.cell(day_row, morning_col, "Horas mañana")
         ws.cell(day_row, afternoon_col, "Horas tarde")
+        ws.cell(day_row, accumulated_morning_col, "Acumulado mañana")
+        ws.cell(day_row, accumulated_afternoon_col, "Acumulado tarde")
 
         for r in data_rows:
             morning_terms = []
@@ -327,29 +340,20 @@ def prepare_workbook(input_path: Path, output_path: Path) -> None:
 
             ws.cell(r, morning_col, f"=SUM({','.join(morning_terms)})")
             ws.cell(r, afternoon_col, f"=SUM({','.join(afternoon_terms)})")
+
+            accumulated_morning_refs = [f"{get_column_letter(carryover_morning_col)}{r}"] + [
+                f"{get_column_letter(c)}{r}" for c in week_morning_cols
+            ]
+            accumulated_afternoon_refs = [f"{get_column_letter(carryover_afternoon_col)}{r}"] + [
+                f"{get_column_letter(c)}{r}" for c in week_afternoon_cols
+            ]
+            ws.cell(r, accumulated_morning_col, f"=SUM({','.join(accumulated_morning_refs)})")
+            ws.cell(r, accumulated_afternoon_col, f"=SUM({','.join(accumulated_afternoon_refs)})")
+
             ws.cell(r, morning_col).number_format = "[h]:mm"
             ws.cell(r, afternoon_col).number_format = "[h]:mm"
-
-    total_insert_at = max(week_morning_cols + week_afternoon_cols) + 1
-    ws.insert_cols(total_insert_at, amount=2)
-    copy_column_style(ws, total_insert_at, max(1, total_insert_at - 1), ws.max_row)
-    copy_column_style(ws, total_insert_at + 1, max(1, total_insert_at - 1), ws.max_row)
-
-    ws.cell(day_row, total_insert_at, "Total mañana")
-    ws.cell(day_row, total_insert_at + 1, "Total tarde")
-
-    for r in data_rows:
-        morning_refs = [f"{get_column_letter(previous_morning_col)}{r}"] + [
-            f"{get_column_letter(c)}{r}" for c in week_morning_cols
-        ]
-        afternoon_refs = [f"{get_column_letter(previous_afternoon_col)}{r}"] + [
-            f"{get_column_letter(c)}{r}" for c in week_afternoon_cols
-        ]
-
-        ws.cell(r, total_insert_at, f"=SUM({','.join(morning_refs)})")
-        ws.cell(r, total_insert_at + 1, f"=SUM({','.join(afternoon_refs)})")
-        ws.cell(r, total_insert_at).number_format = "[h]:mm"
-        ws.cell(r, total_insert_at + 1).number_format = "[h]:mm"
+            ws.cell(r, accumulated_morning_col).number_format = "[h]:mm"
+            ws.cell(r, accumulated_afternoon_col).number_format = "[h]:mm"
 
     wb.save(output_path)
 
