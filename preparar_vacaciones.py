@@ -267,22 +267,41 @@ def prepare_workbook(input_path: Path, output_path: Path) -> None:
     day_row = detect_day_row(ws)
     month_row = detect_month_row(ws, day_row)
     day_cols = extract_day_columns(ws, day_row, month_row)
-    weeks = split_weeks(day_cols)
-
     max_row_before = ws.max_row
+
+    previous_insert_at = day_cols[0].col
+    ws.insert_cols(previous_insert_at, amount=2)
+    copy_column_style(ws, previous_insert_at, max(1, previous_insert_at - 1), max_row_before)
+    copy_column_style(ws, previous_insert_at + 1, max(1, previous_insert_at - 1), max_row_before)
+
+    previous_morning_col = previous_insert_at
+    previous_afternoon_col = previous_insert_at + 1
+    ws.cell(day_row, previous_morning_col, "Anterior mañana")
+    ws.cell(day_row, previous_afternoon_col, "Anterior tarde")
+
+    days_after_previous = [DayColumn(col=d.col + 2, month=d.month, day=d.day) for d in day_cols]
+    weeks_after_previous = split_weeks(days_after_previous)
+
     insert_positions: List[int] = []
 
-    for week in reversed(weeks):
+    for week in reversed(weeks_after_previous):
         insert_at = week[-1].col + 1
         ws.insert_cols(insert_at, amount=2)
         copy_column_style(ws, insert_at, max(1, insert_at - 1), max_row_before)
         copy_column_style(ws, insert_at + 1, max(1, insert_at - 1), max_row_before)
         insert_positions.append(insert_at)
 
-    shifted_days = [DayColumn(col=d.col + col_shift(d.col, insert_positions), month=d.month, day=d.day) for d in day_cols]
+    shifted_days = [
+        DayColumn(col=d.col + col_shift(d.col, insert_positions), month=d.month, day=d.day)
+        for d in days_after_previous
+    ]
     shifted_weeks = split_weeks(shifted_days)
 
     data_rows = detect_data_rows(ws, shifted_days, day_row + 1)
+
+    for r in data_rows:
+        ws.cell(r, previous_morning_col).number_format = "[h]:mm"
+        ws.cell(r, previous_afternoon_col).number_format = "[h]:mm"
 
     week_morning_cols: List[int] = []
     week_afternoon_cols: List[int] = []
@@ -320,8 +339,12 @@ def prepare_workbook(input_path: Path, output_path: Path) -> None:
     ws.cell(day_row, total_insert_at + 1, "Total tarde")
 
     for r in data_rows:
-        morning_refs = [f"{get_column_letter(c)}{r}" for c in week_morning_cols]
-        afternoon_refs = [f"{get_column_letter(c)}{r}" for c in week_afternoon_cols]
+        morning_refs = [f"{get_column_letter(previous_morning_col)}{r}"] + [
+            f"{get_column_letter(c)}{r}" for c in week_morning_cols
+        ]
+        afternoon_refs = [f"{get_column_letter(previous_afternoon_col)}{r}"] + [
+            f"{get_column_letter(c)}{r}" for c in week_afternoon_cols
+        ]
 
         ws.cell(r, total_insert_at, f"=SUM({','.join(morning_refs)})")
         ws.cell(r, total_insert_at + 1, f"=SUM({','.join(afternoon_refs)})")
