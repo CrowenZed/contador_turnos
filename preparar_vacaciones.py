@@ -287,6 +287,9 @@ def prepare_workbook(input_path: Path, output_path: Path) -> None:
     carryover_afternoon_col = carryover_insert_at + 1
     ws.cell(day_row, carryover_morning_col, "Arrastre mañana")
     ws.cell(day_row, carryover_afternoon_col, "Arrastre tarde")
+    for r in range(day_row + 1, max_row_before + 1):
+        ws.cell(r, carryover_morning_col).number_format = "[h]:mm"
+        ws.cell(r, carryover_afternoon_col).number_format = "[h]:mm"
 
     days_after_carryover = [DayColumn(col=d.col + 2, month=d.month, day=d.day) for d in day_cols]
     weeks_after_carryover = split_weeks(days_after_carryover)
