@@ -330,7 +330,7 @@ def prepare_workbook(input_path: Path, output_path: Path) -> None:
             ws.cell(r, morning_col).number_format = "[h]:mm"
             ws.cell(r, afternoon_col).number_format = "[h]:mm"
 
-    total_insert_at = ws.max_column + 1
+    total_insert_at = max(week_morning_cols + week_afternoon_cols) + 1
     ws.insert_cols(total_insert_at, amount=2)
     copy_column_style(ws, total_insert_at, max(1, total_insert_at - 1), ws.max_row)
     copy_column_style(ws, total_insert_at + 1, max(1, total_insert_at - 1), ws.max_row)
