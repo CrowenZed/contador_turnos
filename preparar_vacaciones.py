@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 import unicodedata
 from copy import copy
 from dataclasses import dataclass
@@ -208,22 +209,63 @@ INVALID_SHIFT_MARKERS = {
 }
 
 
-def normalize_turn_value(value: object) -> str:
-    text = "" if value is None else str(value)
-    return text.strip().upper().replace(" ", "")
+def normalizar_turno(valor: object) -> Optional[str]:
+    if valor is None:
+        return None
+
+    if isinstance(valor, bool):
+        return None
+
+    if isinstance(valor, int):
+        return str(valor)
+
+    if isinstance(valor, float):
+        if math.isnan(valor):
+            return None
+        if valor.is_integer():
+            return str(int(valor))
+        return str(valor).strip().upper().replace(" ", "")
+
+    texto = str(valor).strip().upper().replace(" ", "")
+
+    if not texto:
+        return None
+
+    try:
+        numero = float(texto.replace(",", "."))
+        if numero.is_integer():
+            return str(int(numero))
+    except ValueError:
+        pass
+
+    return texto
 
 
 def is_real_shift(value: object) -> bool:
-    normalized = normalize_turn_value(value)
-    if normalized in INVALID_SHIFT_MARKERS:
+    normalized = normalizar_turno(value)
+    if normalized is None or normalized in INVALID_SHIFT_MARKERS:
         return False
     if set(normalized) <= {"-", "_"}:
         return False
     return True
 
 
+def build_excel_turn_normalizer(expr: str) -> str:
+    text_expr = f'SUBSTITUTE(UPPER(TRIM({expr}&""))," ","")'
+    numeric_expr = f'VALUE(SUBSTITUTE({text_expr},",","."))'
+    return f'IFERROR(IF(MOD({numeric_expr},1)=0,TEXT({numeric_expr},"0"),{text_expr}),{text_expr})'
+
+
 def build_lookup_expr(turn_ref: str, date_expr: str, hours_col: str) -> str:
-    normalized_turn = f"SUBSTITUTE(UPPER(TRIM({turn_ref}&\"\")),\" \",\"\")"
+    normalized_turn = build_excel_turn_normalizer(turn_ref)
+
+    def lookup(sheet_name: str) -> str:
+        normalized_sheet_turns = build_excel_turn_normalizer(f"{sheet_name}!$A:$A")
+        return (
+            f"IFERROR(INDEX({sheet_name}!${hours_col}:${hours_col},"
+            f"MATCH({normalized_turn},INDEX({normalized_sheet_turns},0),0)),0)"
+        )
+
     return (
         "IF("
         f"OR({normalized_turn}=\"\",{normalized_turn}=\"F\",{normalized_turn}=\"V\","
@@ -231,16 +273,12 @@ def build_lookup_expr(turn_ref: str, date_expr: str, hours_col: str) -> str:
         f"{normalized_turn}=\"V/F\",{normalized_turn}=\"T\",{normalized_turn}=\"-\",{normalized_turn}=\"_\"),"
         "0,"
         f"IF(COUNTIF(festivos!$A:$A,{date_expr})>0,"
-        "IFERROR(INDEX(FES!$"
-        f"{hours_col}:${hours_col},MATCH(--{normalized_turn},FES!$A:$A,0)),0),"
+        f"{lookup('FES')},"
         f"IF(WEEKDAY({date_expr},2)=6,"
-        "IFERROR(INDEX(DIS!$"
-        f"{hours_col}:${hours_col},MATCH(--{normalized_turn},DIS!$A:$A,0)),0),"
+        f"{lookup('DIS')},"
         f"IF(WEEKDAY({date_expr},2)=7,"
-        "IFERROR(INDEX(FES!$"
-        f"{hours_col}:${hours_col},MATCH(--{normalized_turn},FES!$A:$A,0)),0),"
-        "IFERROR(INDEX(LAB!$"
-        f"{hours_col}:${hours_col},MATCH(--{normalized_turn},LAB!$A:$A,0)),0)"
+        f"{lookup('FES')},"
+        f"{lookup('LAB')}"
         ")"
         ")"
         ")"
